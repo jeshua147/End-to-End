@@ -1,1 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Secure Chat App</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body { font-family: 'Arial', sans-serif; margin: 0; height: 100vh; background-color: #f0f2f5; display: flex; overflow: hidden; }
+        .sidebar { width: 300px; background-color: #f8f9fa; border-right: 1px solid #ddd; overflow-y: auto; display: flex; flex-direction: column; }
+        .sidebar-header { padding: 10px; background-color: #3498db; color: white; text-align: center; font-size: 1.2em; }
+        .chat-categories { padding: 10px; }
+        .chat-categories button { width: 100%; padding: 10px; margin: 5px 0; background-color: #3498db; color: white; border: none; border-radius: 5px; cursor: pointer; transition: background-color 0.3s; }
+        .chat-categories button:hover { background-color: #2980b9; }
+        .chat-categories button.active { background-color: #2980b9; }
+        .chat-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .chat-header { background-color: #3498db; color: white; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; }
+        .chat-header h2 { margin: 0; font-size: 1.2em; }
+        .chat-area { flex: 1; overflow-y: auto; padding: 20px; background-color: #e5ddd5; display: flex; flex-direction: column; gap: 10px; }
+        .message { max-width: 60%; padding: 10px 15px; border-radius: 10px; display: flex; flex-direction: column; }
+        .sent { background-color: #3498db; margin-left: auto; align-self: flex-end; }
+        .received { background-color: #ffffff; margin-right: auto; align-self: flex-start; }
+        .system-message { text-align: center; color: #8696a0; font-style: italic; margin: 5px 0; }
+        .message-content { margin: 0; }
+        .timestamp { font-size: 0.7em; color: #8696a0; align-self: flex-end; }
+        .input-area { padding: 10px; background-color: #f0f2f5; border-top: 1px solid #ddd; display: flex; gap: 10px; }
+        .input-area input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 20px; outline: none; }
+        .input-area button { padding: 10px 20px; background-color: #3498db; color: white; border: none; border-radius: 20px; cursor: pointer; transition: background-color 0.3s; }
+        .input-area button:hover { background-color: #2980b9; }
+        .register-area { padding: 10px; background-color: #ffffff; border-bottom: 1px solid #ddd; display: flex; gap: 10px; }
+        .register-area input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 5px; outline: none; }
+        .register-area button { padding: 10px 20px; background-color: #3498db; color: white; border: none; border-radius: 5px; cursor: pointer; transition: background-color 0.3s; }
+        .register-area button:hover { background-color: #2980b9; }
+        #leaveBtn { background-color: #e53935; }
+        #leaveBtn:hover { background-color: #c62828; }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">Contacts</div>
+        <div class="chat-categories">
+            <button class="active" onclick="selectCategory('global')">Global Chat</button>
+        </div>
+    </div>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h2>Secure Chat App</h2>
+            <div>
+                <button id="leaveBtn" onclick="leaveChat()" style="display:none;">Leave</button>
+            </div>
+        </div>
+        <div class="register-area" id="registerArea">
+            <input type="text" id="username" placeholder="Enter username">
+            <button onclick="register()">Register</button>
+        </div>
+        <div class="chat-area" id="chat"></div>
+        <div class="input-area">
+            <input type="text" id="message" placeholder="Type your message">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    </div>
 
+    <script>
+        const socket = io('http://0.0.0.0:5000'); // Match server port
+        let username = '';
+        let currentCategory = 'global';
+        let messageHistory = {};
+
+        function selectCategory(category) {
+            currentCategory = category;
+            const buttons = document.querySelectorAll('.chat-categories button');
+            buttons.forEach(btn => btn.classList.remove('active'));
+            document.querySelector(`.chat-categories button[onclick="selectCategory('${category}')"]`).classList.add('active');
+            document.getElementById('chat').innerHTML = '';
+            displayGlobalMessages();
+        }
+
+        function register() {
+            username = document.getElementById('username').value.trim();
+            if (!username) {
+                alert('Please enter a username!');
+                return;
+            }
+            socket.emit('register', { username });
+            document.getElementById('username').disabled = true;
+            document.getElementById('leaveBtn').style.display = 'inline-block';
+            document.getElementById('registerArea').style.borderBottom = 'none';
+        }
+
+        function sendMessage() {
+            const message = document.getElementById('message').value.trim();
+            if (!message || !username) {
+                alert('Please register and enter a message!');
+                return;
+            }
+            socket.emit('send_message', { username, message });
+            document.getElementById('message').value = '';
+            if (!messageHistory['global']) messageHistory['global'] = [];
+            const lastMessage = messageHistory['global'].length > 0 ? messageHistory['global'][messageHistory['global'].length - 1] : null;
+            if (!lastMessage || lastMessage.message !== message || lastMessage.sender !== username) {
+                messageHistory['global'].push({ sender: username, message, timestamp: new Date().toISOString() });
+                displayGlobalMessages();
+            }
+        }
+
+        function leaveChat() {
+            if (!username) {
+                alert('You are not registered!');
+                return;
+            }
+            socket.emit('leave', { username });
+            username = '';
+            document.getElementById('username').disabled = false;
+            document.getElementById('username').value = '';
+            document.getElementById('leaveBtn').style.display = 'none';
+            document.getElementById('chat').innerHTML = '<div style="text-align: center; color: #8696a0;">You have left the chat.</div>';
+            document.getElementById('message').disabled = true;
+            document.getElementById('registerArea').style.borderBottom = '1px solid #ddd';
+            messageHistory = {};
+        }
+
+        function displayGlobalMessages() {
+            if (!username) return;
+            const chat = document.getElementById('chat');
+            chat.innerHTML = messageHistory['global']?.map(msg => {
+                if (msg.message.includes('has joined') || msg.message.includes('has left the chat')) {
+                    return `<div class="system-message">${msg.message}</div>`;
+                }
+                const match = msg.message.match(/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] (.*)/);
+                if (match) {
+                    const [, time, content] = match;
+                    const [sender, ...rest] = content.split(': ');
+                    const message = rest.join(': ');
+                    return `
+                        <div class="message ${sender === username ? 'sent' : 'received'}">
+                            <p class="message-content">${sender}: ${message}</p>
+                            <span class="timestamp">${new Date(time).toLocaleTimeString()}</span>
+                        </div>
+                    `;
+                }
+                return '';
+            }).join('') || '';
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        socket.on('global_message', function(data) {
+            const match = data.msg.match(/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] (.*)/);
+            if (match && currentCategory === 'global' && username) {
+                const [, time, content] = match;
+                const [sender, ...rest] = content.split(': ');
+                const message = rest.join(': ');
+                if (!messageHistory['global']) messageHistory['global'] = [];
+                const exists = messageHistory['global'].some(msg => {
+                    const msgMatch = msg.message.match(/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] (.*)/);
+                    if (msgMatch) {
+                        const [, msgTime, msgContent] = msgMatch;
+                        const [msgSender, ...msgRest] = msgContent.split(': ');
+                        const msgText = msgRest.join(': ');
+                        return msgSender === sender && msgText === message;
+                    }
+                    return false;
+                });
+                if (!exists) {
+                    messageHistory['global'].push({ sender, message: data.msg, timestamp: new Date(time).toISOString() });
+                    displayGlobalMessages();
+                }
+            } else if (currentCategory === 'global' && username) {
+                const message = data.msg;
+                if (!messageHistory['global']) messageHistory['global'] = [];
+                const exists = messageHistory['global'].some(msg => msg.message === message);
+                if (!exists && message.includes(username + ' has joined')) {
+                    messageHistory['global'].push({ sender: username, message: message, timestamp: new Date().toISOString() });
+                } else if (!exists) {
+                    messageHistory['global'].push({ sender: '', message: message, timestamp: new Date().toISOString() });
+                }
+                displayGlobalMessages();
+            }
+        });
+
+        socket.on('user_list', function(data) {
+            // No recipient dropdown needed for global chat
+        });
+    </script>
+</body>
+</html>
